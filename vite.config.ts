@@ -7,4 +7,5 @@ export default defineConfig({
   server: {
     port: 4444,
   },
+  base: "/color-palette-plot-editor/",
 });
