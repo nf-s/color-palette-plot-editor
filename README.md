@@ -1,5 +1,7 @@
 # Color Palette Plot Editor
 
+### [nf-s.github.io/color-palette-plot-editor/](https://nf-s.github.io/color-palette-plot-editor/)
+
 A simple tool to create and edit color palettes in the OKLab (Oklch) color space (or any space that is supported by `colorjs`).
 
 Is this scientific? No! Is it fun? Yes!
