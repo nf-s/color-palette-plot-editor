@@ -1,5 +1,5 @@
 import Color, { SpaceAccessor } from "colorjs.io";
-import { MouseEvent, useCallback, useState } from "react";
+import { MouseEvent, TouchEvent, useCallback, useState } from "react";
 import { PickProperties } from "ts-essentials";
 import "./App.css";
 
@@ -91,20 +91,12 @@ availableSpaceDimensions.forEach((spaceDimension) => {
     throw new Error(
       `Dimension ${spaceDimension.dimension} not found in space ${spaceDimension.spaceId}`
     );
-  } else {
-    console.log(
-      `Dimension ${spaceDimension.dimension} found in space ${spaceDimension.spaceId}`
-    );
   }
   if (
     testColor[spaceDimension.spaceId][spaceDimension.dimension] === undefined
   ) {
     throw new Error(
       `Dimension ${spaceDimension.dimension} not found in space ${spaceDimension.spaceId}`
-    );
-  } else {
-    console.log(
-      `Dimension ${spaceDimension.dimension} found in space ${spaceDimension.spaceId}`
     );
   }
 });
@@ -144,30 +136,40 @@ function ColorChart({
     spaceDimension.space.coords[spaceDimension.dimension].refRange?.[1] ?? 1;
 
   const updatePoint = useCallback(
-    (point: Point, mouseEvent: MouseEvent) => {
-      if (mouseEvent.buttons === 1 || mouseEvent.type === "click") {
-        const slice = point as unknown as SliceTooltipProps["slice"];
-        setColors((prev: string[]) => {
-          const newColors = [...prev];
-          const newColor = new Color(prev[slice.points[0].index]);
+    (point: Point, event: MouseEvent | TouchEvent) => {
+      const slice = point as unknown as SliceTooltipProps["slice"];
 
-          let offsetY = mouseEvent.nativeEvent.offsetY;
+      if (
+        event.nativeEvent.target instanceof Element &&
+        ("touches" in event ||
+          ("buttons" in event &&
+            (event.buttons === 1 || event.type === "click")))
+      ) {
+        const clientY =
+          "touches" in event ? event.touches[0].clientY : event.clientY;
 
-          // Firefox doesn't have offset, so we need to calculate it
-          if (!offsetY && mouseEvent.nativeEvent.target instanceof Element) {
-            const rect = mouseEvent.nativeEvent.target?.getBoundingClientRect();
-            offsetY = mouseEvent.clientY - rect.top;
-          }
+        if (typeof clientY === "undefined") return;
+        const rect = event.nativeEvent.target?.getBoundingClientRect();
+        const newValue =
+          (1 - (clientY - rect.top) / slice.height) * (max - min) + min;
 
-          newColor[spaceDimension.spaceId][spaceDimension.dimension] =
-            (1 - offsetY / slice.height) * (max - min) + min;
+        if (newValue !== null) {
+          setColors((prev: string[]) => {
+            const newColors = [...prev];
+            const newColor = new Color(prev[slice.points[0].index]);
 
-          newColors[slice.points[0].index] = newColor.toString({
-            format: "hex",
+            newColor[spaceDimension.spaceId][spaceDimension.dimension] =
+              newValue;
+            newColors[slice.points[0].index] = newColor.toString({
+              format: "hex",
+            });
+
+            return newColors;
           });
+        }
 
-          return newColors;
-        });
+        event.stopPropagation();
+        return true;
       }
     },
     [setColors, spaceDimension.spaceId, spaceDimension.dimension, max, min]
@@ -175,12 +177,41 @@ function ColorChart({
 
   return (
     <div className="h-full w-full">
-      <h2 className="font-bold text-xl">
-        {spaceDimension.space.name} - {spaceDimension.dimension}
-      </h2>
+      <div className="flex justify-between">
+        <h2 className="font-bold text-md md:text-xl text-nowrap">
+          {spaceDimension.space.name} - {spaceDimension.dimension}
+        </h2>
+        <button
+          className="font-light text-xs font-mono"
+          onClick={() => {
+            setColors((prev: string[]) => {
+              const firstColor = new Color(prev[0]);
+              const lastColor = new Color(prev[prev.length - 1]);
+
+              const firstValue =
+                firstColor[spaceDimension.spaceId][spaceDimension.dimension];
+              const lastValue =
+                lastColor[spaceDimension.spaceId][spaceDimension.dimension];
+
+              return prev.map((colorString, i) => {
+                const newColor = new Color(colorString);
+                newColor[spaceDimension.spaceId][spaceDimension.dimension] =
+                  i * ((lastValue - firstValue) / (prev.length - 1)) +
+                  firstValue;
+
+                return newColor.toString({
+                  format: "hex",
+                });
+              });
+            });
+          }}
+        >
+          spread linearly
+        </button>
+      </div>
       <div className="h-[calc(100%-56px)]">
         <ResponsiveLine
-          data={[{ id: "colour", data: points }]}
+          data={[{ id: spaceDimension.label, data: points }]}
           xScale={{ type: "point" }}
           yScale={{
             type: "linear",
@@ -194,6 +225,7 @@ function ColorChart({
           pointBorderWidth={2}
           onMouseMove={updatePoint}
           onClick={updatePoint}
+          onTouchMove={updatePoint}
           isInteractive
           enableSlices="x"
         />
@@ -203,6 +235,7 @@ function ColorChart({
 }
 
 function App() {
+  const [showInitialColors, setShowInitialColors] = useState(false);
   const [colors, setColors] = useState(initialColors);
   const [selectedSpaceDimensions, setSelectedSpaceDimensions] = useState<
     SpaceValue[]
@@ -222,11 +255,13 @@ function App() {
   });
 
   return (
-    <div className="p-4 w-full h-screen flex gap-3 flex-col">
-      <div className="flex justify-between gap-4">
-        <h1 className="text-3xl font-bold text-nowrap ">Color palette plot</h1>
+    <div className="p-4 w-full h-screen flex gap-2 md:gap-3 flex-col font-mono">
+      <div className="flex flex-col md:flex-row justify-between gap-2">
+        <h1 className="text-xl md:text-3xl font-bold text-nowrap ">
+          Color palette plot
+        </h1>
         <Select
-          className="flex-grow"
+          className="flex-grow text-sm"
           isMulti
           getOptionValue={(option) => option.id}
           defaultValue={defaultSpaceDimensions}
@@ -242,29 +277,39 @@ function App() {
           options={availableSpaceDimensions}
           closeMenuOnSelect={false}
         />
+        <button
+          className="pointer border-[#ccc] hover:border-[#b3b3b3] border-solid border rounded px-2 py-1 text-nowrap text-sm font-mono"
+          onClick={() => setShowInitialColors((prev) => !prev)}
+        >
+          {showInitialColors ? "Hide" : "Show"} initial colors
+        </button>
       </div>
 
-      <div className="flex flex-row w-full">
-        {initialColors.map((c, i) => (
-          <div
-            key={i}
-            className="flex-grow h-20"
-            style={{ backgroundColor: c }}
-          >
-            &nbsp;
+      <div>
+        {showInitialColors ? (
+          <div className="flex flex-row w-full">
+            {initialColors.map((c, i) => (
+              <div
+                key={i}
+                className="flex-grow h-10 md:h-20"
+                style={{ backgroundColor: c }}
+              >
+                &nbsp;
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="flex flex-row w-full">
-        {colors.map((c, i) => (
-          <div
-            key={i}
-            className="flex-grow h-20"
-            style={{ backgroundColor: c }}
-          >
-            &nbsp;
-          </div>
-        ))}
+        ) : null}
+        <div className="flex flex-row w-full">
+          {colors.map((c, i) => (
+            <div
+              key={i}
+              className="flex-grow h-10 md:h-20"
+              style={{ backgroundColor: c }}
+            >
+              &nbsp;
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="flex-grow overflow-y-auto">
